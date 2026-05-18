@@ -9,7 +9,9 @@ POST /signals/{id}/lifecycle      — manual state observation
 POST /signals/{id}/auto-lifecycle — observation-driven state transition
 GET  /signals/                    — list (filter by week/direction/result)
 GET  /signals/{id}                — signal + full lifecycle
-GET  /signals/stats/week/{week}   — PnL summary for a week
+GET  /signals/stats/week/{week}       — PnL summary for a week
+GET  /signals/analytics/week/{week}  — full lifecycle intelligence (for ChatGPT Saturday)
+GET  /signals/{id}/summary           — lifecycle summary for one signal
 """
 
 from datetime import datetime
@@ -19,6 +21,10 @@ from pydantic import BaseModel
 from sqlmodel import Session, select, func
 
 from app.database import Signal, LifecycleEvent, get_session
+from app.signal_lifecycle_tracker.tracker import (
+    compute_lifecycle_summary,
+    compute_week_analytics,
+)
 from app.continuation_state_logger.classifier import (
     classify_initial_hypothesis,
     classify_transition_full,
@@ -345,6 +351,35 @@ def week_stats(week: str, session: Session = Depends(get_session)):
             },
         },
     }
+
+
+
+@router.get("/analytics/week/{week}")
+def week_analytics(week: str, session: Session = Depends(get_session)):
+    """
+    Full lifecycle intelligence summary for a week.
+    This is the primary endpoint for Saturday ChatGPT analysis.
+
+    Returns continuation state distribution, participation behavior,
+    survivability scores, false recovery frequency, half-life distribution,
+    decay rate patterns, and W19 doctrine confirmation check.
+    """
+    result = compute_week_analytics(week=week, session=session)
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
+
+
+@router.get("/{signal_id}/summary")
+def signal_summary(signal_id: int, session: Session = Depends(get_session)):
+    """
+    Lifecycle intelligence summary for a single signal.
+    Includes: state path, half-life, decay rate, survivability score.
+    """
+    result = compute_lifecycle_summary(signal_id=signal_id, session=session)
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
 
 
 @router.get("/")
