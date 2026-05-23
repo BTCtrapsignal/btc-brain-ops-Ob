@@ -115,7 +115,7 @@ class EventLog(SQLModel, table=True):
     state_from: Optional[str] = None        # for LIFECYCLE_UPDATE
     state_to: Optional[str] = None
     reason: Optional[str] = None            # rejection reason, error message
-    metadata: Optional[str] = None          # JSON string for extra data
+    event_metadata: Optional[str] = None    # JSON string for extra data
 
 
 class WeeklyExport(SQLModel, table=True):

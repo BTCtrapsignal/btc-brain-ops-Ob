@@ -30,7 +30,7 @@ class EventLogRequest(BaseModel):
     state_from: Optional[str] = None
     state_to: Optional[str] = None
     reason: Optional[str] = None
-    metadata: Optional[str] = None
+    event_metadata: Optional[str] = None
 
 
 def log_event(
@@ -60,7 +60,7 @@ def log_event(
         state_from=state_from,
         state_to=state_to,
         reason=reason,
-        metadata=metadata,
+        event_metadata=metadata,
     )
     session.add(ev)
     session.commit()

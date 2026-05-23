@@ -160,7 +160,7 @@ def ingest_signal(payload: SignalIngestRequest, session: Session = Depends(get_s
               signal_id=signal.id,
               week=signal.week,
               direction=signal.direction,
-              metadata=f"state={hyp.state} conf={hyp.confidence:.0%}")
+              event_metadata=f"state={hyp.state} conf={hyp.confidence:.0%}")
 
     return {
         "signal_id": signal.id,
@@ -218,7 +218,7 @@ def close_signal(
               week=signal.week,
               direction=signal.direction,
               result=payload.result,
-              metadata=f"pnl={signal.net_pnl_usd} rr={signal.rr_achieved} "
+              event_metadata=f"pnl={signal.net_pnl_usd} rr={signal.rr_achieved} "
                        f"state={signal.final_continuation_state}")
 
     return {
@@ -311,7 +311,7 @@ def auto_lifecycle_event(
               signal_id=signal_id,
               state_from=current_state,
               state_to=transition.next_state,
-              metadata=f"weight={transition.observation_weight} "
+              event_metadata=f"weight={transition.observation_weight} "
                        f"delta={transition.confidence_delta:+.2f}")
 
     return {
