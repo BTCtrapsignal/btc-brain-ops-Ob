@@ -20,7 +20,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session, select, func
 
-from app.database import Signal, LifecycleEvent, get_session
+from app.database import Signal, LifecycleEvent, EventLog, get_session
+from app.api.events import log_event
 from app.signal_lifecycle_tracker.tracker import (
     compute_lifecycle_summary,
     compute_week_analytics,
@@ -50,6 +51,15 @@ class SignalIngestRequest(BaseModel):
     rsi_at_entry: Optional[float] = None
     atr_at_entry: Optional[float] = None
     trend_4h: Optional[str] = None
+    # Universal Signal Schema — quality metadata (optional)
+    source: Optional[str] = None
+    setup_type: Optional[str] = None
+    market_regime: Optional[str] = None
+    liquidity_risk: Optional[str] = None
+    confidence_reason: Optional[str] = None
+    breakout_quality: Optional[str] = None
+    volatility_state: Optional[str] = None
+    risk_score: Optional[float] = None
 
 
 class SignalCloseRequest(BaseModel):
@@ -107,6 +117,14 @@ def ingest_signal(payload: SignalIngestRequest, session: Session = Depends(get_s
         rsi_at_entry=payload.rsi_at_entry,
         atr_at_entry=payload.atr_at_entry,
         trend_4h=payload.trend_4h,
+        source=payload.source,
+        setup_type=payload.setup_type,
+        market_regime=payload.market_regime or payload.regime,
+        liquidity_risk=payload.liquidity_risk,
+        confidence_reason=payload.confidence_reason,
+        breakout_quality=payload.breakout_quality,
+        volatility_state=payload.volatility_state,
+        risk_score=payload.risk_score,
         result="OPEN",
     )
     session.add(signal)
@@ -135,6 +153,14 @@ def ingest_signal(payload: SignalIngestRequest, session: Session = Depends(get_s
     )
     session.add(event)
     session.commit()
+
+    # Log structured event
+    log_event(session, "SIGNAL_CREATED",
+              source=payload.source or "unknown",
+              signal_id=signal.id,
+              week=signal.week,
+              direction=signal.direction,
+              metadata=f"state={hyp.state} conf={hyp.confidence:.0%}")
 
     return {
         "signal_id": signal.id,
@@ -185,6 +211,15 @@ def close_signal(
 
     session.add(signal)
     session.commit()
+
+    # Log structured event
+    log_event(session, "TRADE_CLOSED",
+              signal_id=signal_id,
+              week=signal.week,
+              direction=signal.direction,
+              result=payload.result,
+              metadata=f"pnl={signal.net_pnl_usd} rr={signal.rr_achieved} "
+                       f"state={signal.final_continuation_state}")
 
     return {
         "signal_id": signal_id,
@@ -271,6 +306,13 @@ def auto_lifecycle_event(
     session.add(event)
     session.commit()
     session.refresh(event)
+
+    log_event(session, "LIFECYCLE_UPDATE",
+              signal_id=signal_id,
+              state_from=current_state,
+              state_to=transition.next_state,
+              metadata=f"weight={transition.observation_weight} "
+                       f"delta={transition.confidence_delta:+.2f}")
 
     return {
         "event_id": event.id,
