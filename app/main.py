@@ -12,13 +12,12 @@ ARCHITECTURE:
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 from app.database.engine import create_db_and_tables
 from app.api.signals import router as signals_router
 from app.api.weekly import router as weekly_router
 from app.api.events import router as events_router
 from app.api.reflex import router as reflex_router
-from app.api.monitor import router as monitor_router   # ← เพิ่ม
+from app.api.monitor import router as monitor_router, VERSION
 
 
 @asynccontextmanager
@@ -32,27 +31,17 @@ app = FastAPI(
     description=(
         "Parallel survivability intelligence system for BTC-Brain. "
         "Universal signal schema. Structured event logging. "
-        "Read-only Reflex Engine interface."
+        "Read-only Reflex Engine interface. Monitor-compatible observability endpoints."
     ),
-    version="1.1.0",
+    version=VERSION,
     lifespan=lifespan,
 )
-
-# ── CORS ─────────────────────────────────────────────────────────────────────
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
-    allow_methods=["GET", "POST"],
-    allow_headers=["*"],
-)
-# ─────────────────────────────────────────────────────────────────────────────
 
 app.include_router(signals_router)
 app.include_router(weekly_router)
 app.include_router(events_router)
 app.include_router(reflex_router)
-app.include_router(monitor_router)   # ← เพิ่ม
+app.include_router(monitor_router)
 
 
 @app.get("/", tags=["health"])
@@ -72,7 +61,6 @@ def root():
             "weekly":     "/weekly",
             "events":     "/events",
             "reflex":     "/reflex  ← READ ONLY",
-            "monitor":    "/monitor/status  ← system health all 3 layers",
             "docs":       "/docs",
         },
         "architecture": {
@@ -83,6 +71,4 @@ def root():
     }
 
 
-@app.get("/health", tags=["health"])
-def health():
-    return {"status": "ok", "version": "1.1.0"}
+# /health and /monitor/status are registered by monitor_router
