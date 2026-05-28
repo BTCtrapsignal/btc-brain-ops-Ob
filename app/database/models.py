@@ -118,6 +118,80 @@ class EventLog(SQLModel, table=True):
     event_metadata: Optional[str] = None    # JSON string for extra data
 
 
+
+class MissedOpportunity(SQLModel, table=True):
+    """
+    Records setups that were evaluated but blocked by filters.
+
+    Purpose: measure filter suppression cost — understand whether
+    current filters are protecting alpha OR suppressing profitable setups.
+
+    This is NOT a trade record. It is an observation of what the market
+    did AFTER a setup was rejected, compared to what would have happened.
+
+    Doctrine: DATA → EVIDENCE → CALIBRATION (not frustration → assumption)
+    """
+    id: Optional[int] = Field(default=None, primary_key=True)
+
+    # ── Identity ─────────────────────────────────────────────
+    week: str
+    session: str
+    observed_ts: datetime = Field(default_factory=datetime.utcnow)
+    direction: str                          # "LONG" | "SHORT" — direction of rejected setup
+
+    # ── Market context at rejection time ─────────────────────
+    price_at_rejection: float
+    regime: Optional[str] = None
+    oi_state: Optional[str] = None
+    oi_value: Optional[float] = None        # actual OI % at time (for threshold analysis)
+    atr_value: Optional[float] = None       # actual ATR at time (for threshold analysis)
+    rsi_value: Optional[float] = None
+    trend_4h: Optional[str] = None
+    setup_type: Optional[str] = None        # "smc_sweep" | "auto_pro" | "compression_breakout"
+
+    # ── Rejection reasons (which filters blocked this) ────────
+    # Comma-separated list of blocking filter names
+    blocked_by: Optional[str] = None        # e.g. "oi_expansion,atr_threshold"
+    rejection_reason: Optional[str] = None  # human-readable reason
+    near_valid: Optional[bool] = None       # True if just barely below threshold
+
+    # ── Threshold proximity (how close was it?) ───────────────
+    # Positive = was X% below threshold (missed by X%)
+    oi_gap_pct: Optional[float] = None      # how far OI was from min threshold
+    atr_gap_pct: Optional[float] = None     # how far ATR was from min threshold
+    rsi_gap: Optional[float] = None         # how far RSI was from threshold
+
+    # ── Post-rejection outcome (filled later by operator/bot) ─
+    price_30m_later: Optional[float] = None
+    price_2h_later: Optional[float] = None
+    price_4h_later: Optional[float] = None
+    move_30m_pct: Optional[float] = None    # % move 30min after rejection
+    move_2h_pct: Optional[float] = None     # % move 2h after rejection
+    move_4h_pct: Optional[float] = None     # % move 4h after rejection
+
+    # ── Outcome assessment ────────────────────────────────────
+    # Filled after post-rejection outcome is known
+    would_have_worked: Optional[bool] = None    # did price move in rejected direction?
+    move_direction_correct: Optional[bool] = None  # was direction correct at 2h?
+    suppression_justified: Optional[bool] = None   # did rejection prevent a loss?
+
+    # tp_equivalent and sl_equivalent for would-have-been trade
+    tp_equivalent: Optional[float] = None
+    sl_equivalent: Optional[float] = None
+    tp_hit: Optional[bool] = None           # would TP have been hit?
+    sl_hit: Optional[bool] = None           # would SL have been hit?
+
+    # ── Intelligence classification ───────────────────────────
+    # Filled during weekly review
+    suppression_type: Optional[str] = None
+    # "protected_loss"      — rejection prevented a losing trade (filter worked)
+    # "suppressed_win"      — rejection blocked a winning trade (filter cost)
+    # "neutral"             — rejection didn't matter (price went sideways)
+    # "unknown"             — insufficient data to classify
+
+    notes: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
 class WeeklyExport(SQLModel, table=True):
     """Cached weekly exports. One row per week."""
     id: Optional[int] = Field(default=None, primary_key=True)

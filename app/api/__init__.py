@@ -3,8 +3,9 @@ from .weekly import router as weekly_router
 from .events import router as events_router
 from .reflex import router as reflex_router
 from .monitor import router as monitor_router
+from .calibration import router as calibration_router
 
 __all__ = [
     "signals_router", "weekly_router",
-    "events_router", "reflex_router", "monitor_router",
+    "events_router", "reflex_router", "monitor_router", "calibration_router",
 ]

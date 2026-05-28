@@ -18,6 +18,7 @@ from app.api.weekly import router as weekly_router
 from app.api.events import router as events_router
 from app.api.reflex import router as reflex_router
 from app.api.monitor import router as monitor_router, VERSION
+from app.api.calibration import router as calibration_router
 
 
 @asynccontextmanager
@@ -42,6 +43,7 @@ app.include_router(weekly_router)
 app.include_router(events_router)
 app.include_router(reflex_router)
 app.include_router(monitor_router)
+app.include_router(calibration_router)
 
 
 @app.get("/", tags=["health"])
@@ -60,6 +62,7 @@ def root():
             "signals":    "/signals",
             "weekly":     "/weekly",
             "events":     "/events",
+            "calibration": "/calibration",
             "reflex":     "/reflex  ← READ ONLY",
             "docs":       "/docs",
         },
