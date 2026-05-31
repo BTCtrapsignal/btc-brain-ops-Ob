@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
 from app.database import WeeklyExport, get_session
-from app.weekly_intelligence_exporter.exporter import generate_weekly_markdown
+from app.weekly_intelligence_exporter.exporter import generate_weekly_markdown, get_generation_metadata
 from app.obsidian_export.formatter import format_for_obsidian
 
 router = APIRouter(prefix="/weekly", tags=["weekly"])
@@ -44,15 +44,54 @@ def get_obsidian_export(week: str, session: Session = Depends(get_session)):
 def generate_export(week: str, session: Session = Depends(get_session)):
     markdown = generate_weekly_markdown(week=week, session=session)
     obsidian = format_for_obsidian(week=week, markdown=markdown)
+    meta     = get_generation_metadata(week=week, session=session)
 
     existing = session.exec(select(WeeklyExport).where(WeeklyExport.week == week)).first()
     if existing:
-        existing.markdown_content = markdown
-        existing.obsidian_content = obsidian
-        existing.generated_at = datetime.utcnow()
+        existing.markdown_content            = markdown
+        existing.obsidian_content            = obsidian
+        existing.generated_at                = datetime.utcnow()
+        existing.signal_count_at_generation  = meta['signal_count_at_generation']
+        existing.missed_count_at_generation  = meta['missed_count_at_generation']
+        existing.event_count_at_generation   = meta['event_count_at_generation']
+        existing.is_complete                 = meta['is_complete']
         session.add(existing)
     else:
-        session.add(WeeklyExport(week=week, markdown_content=markdown, obsidian_content=obsidian))
+        session.add(WeeklyExport(
+            week=week,
+            markdown_content=markdown,
+            obsidian_content=obsidian,
+            **meta,
+        ))
 
     session.commit()
-    return {"week": week, "status": "generated", "length": len(markdown)}
+    return {
+        "week":    week,
+        "status":  "generated",
+        "length":  len(markdown),
+        "metadata": meta,
+    }
+
+@router.get("/{week}/status")
+def export_status(week: str, session: Session = Depends(get_session)):
+    """
+    Reliability check for a weekly export.
+    Lets ChatGPT (and operator) verify the report was generated with complete data.
+    """
+    export = session.exec(select(WeeklyExport).where(WeeklyExport.week == week)).first()
+    if not export:
+        return {
+            "week":      week,
+            "exported":  False,
+            "message":   f"No export found. POST to /weekly/{week}/generate first.",
+        }
+    return {
+        "week":                       week,
+        "exported":                   True,
+        "generated_at":               export.generated_at,
+        "is_complete":                export.is_complete,
+        "signal_count_at_generation": export.signal_count_at_generation,
+        "missed_count_at_generation":  export.missed_count_at_generation,
+        "event_count_at_generation":   export.event_count_at_generation,
+        "markdown_length":             len(export.markdown_content),
+    }

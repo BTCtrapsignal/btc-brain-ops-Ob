@@ -193,9 +193,14 @@ class MissedOpportunity(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 class WeeklyExport(SQLModel, table=True):
-    """Cached weekly exports. One row per week."""
+    """Cached weekly exports. One row per week, with reliability metadata."""
     id: Optional[int] = Field(default=None, primary_key=True)
     week: str = Field(unique=True)
     generated_at: datetime = Field(default_factory=datetime.utcnow)
     markdown_content: str
     obsidian_content: Optional[str] = None
+    # W22: Reliability metadata — lets ChatGPT validate report completeness
+    signal_count_at_generation: Optional[int] = None
+    missed_count_at_generation:  Optional[int] = None
+    event_count_at_generation:   Optional[int] = None
+    is_complete: Optional[bool]  = None
