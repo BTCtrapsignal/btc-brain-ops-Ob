@@ -44,7 +44,7 @@ def log_event(
     state_from: str = None,
     state_to: str = None,
     reason: str = None,
-    metadata: str = None,
+    event_metadata: str = None,
 ) -> EventLog:
     """
     Internal helper — call this from other API handlers to log events.
@@ -60,7 +60,7 @@ def log_event(
         state_from=state_from,
         state_to=state_to,
         reason=reason,
-        event_metadata=metadata,
+        event_metadata=event_metadata,
     )
     session.add(ev)
     session.commit()
