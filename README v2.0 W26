@@ -1,0 +1,300 @@
+README v2.0 Rewrite — BTC Brain Ops (W26)
+
+Rewrite the entire README.md.
+
+Do not patch the existing document.
+
+The current README reflects the original Phase 1 architecture.
+
+The system has evolved significantly during W25.
+
+The README must now describe the actual W26 architecture.
+
+⸻
+
+Project Name
+
+BTC Brain Ops
+
+Runtime Truth Platform
+
+⸻
+
+Purpose
+
+BTC Brain Ops is the Runtime Truth Platform of the BTC Ecosystem.
+
+It is responsible for collecting, preserving and serving production runtime facts.
+
+Brain Ops is NOT responsible for engineering conclusions.
+
+Brain Ops is NOT responsible for trading decisions.
+
+Brain Ops never modifies production behaviour.
+
+⸻
+
+Core Philosophy
+
+Separate Facts from Conclusions.
+
+Runtime systems collect facts.
+
+Engineering systems produce conclusions.
+
+Production systems execute decisions.
+
+⸻
+
+Current Ecosystem
+
+Describe the complete ecosystem.
+
+Market
+
+↓
+
+BTC Signal Bot
+
+Production Execution
+
+↓
+
+BTC Brain Ops
+
+Runtime Truth Platform
+
+↓
+
+ChatGPT
+
+Evidence Review
+
+↓
+
+Verified Findings
+
+↓
+
+Claude
+
+Engineering Implementation
+
+↓
+
+GitHub
+
+↓
+
+Production
+
+⸻
+
+Reflex Engine operates independently as a read-only observation system.
+
+Reflex never modifies Signal Bot.
+
+Brain Ops never modifies Signal Bot.
+
+⸻
+
+Responsibilities
+
+Signal Bot
+
+Production execution only.
+
+Generate signals.
+
+Manage trade lifecycle.
+
+Report runtime events.
+
+⸻
+
+Reflex Engine
+
+Observation only.
+
+Composite market analysis.
+
+Behaviour analysis.
+
+Read-only.
+
+⸻
+
+Brain Ops
+
+Runtime Truth Platform.
+
+Maintain
+
+* Signals
+* Events
+* Lifecycle
+* Trade Results
+* Weekly Runtime
+* Runtime APIs
+
+Never
+
+* Analyse markets
+* Generate engineering conclusions
+* Tune thresholds
+* Execute trades
+* Block signals
+
+⸻
+
+ChatGPT
+
+Evidence Review Layer.
+
+Responsible for
+
+* Runtime review
+* Cross validation
+* Root cause analysis
+* Engineering conclusions
+* Verified findings
+
+⸻
+
+Claude
+
+Engineering Layer.
+
+Responsible for
+
+* Requirements
+* Sprint planning
+* Implementation
+* Refactoring
+* Documentation
+* Obsidian updates
+* GitHub updates
+
+Claude must implement only verified findings.
+
+⸻
+
+Engineering Workflow
+
+Runtime
+
+↓
+
+Evidence Collection
+
+↓
+
+ChatGPT Evidence Review
+
+↓
+
+Verified Findings
+
+↓
+
+Requirements
+
+↓
+
+Sprint
+
+↓
+
+Implementation
+
+↓
+
+Deployment
+
+↓
+
+New Runtime Evidence
+
+This loop repeats continuously.
+
+⸻
+
+Runtime APIs
+
+Document every production endpoint.
+
+Include
+
+* /signals
+* /events
+* /signals/stats
+* /signals/analytics
+* /weekly
+* /reflex
+* /calibration
+* /health
+
+For each endpoint explain
+
+Purpose
+
+Input
+
+Output
+
+Consumers
+
+⸻
+
+Engineering Principles
+
+1. Runtime Evidence is the Single Source of Truth.
+2. Facts and conclusions must remain separated.
+3. Brain Ops stores facts.
+4. ChatGPT performs engineering review.
+5. Claude performs engineering implementation.
+6. Every implementation must reference verified evidence.
+7. Reflex remains read-only.
+8. Production safety always has priority.
+
+⸻
+
+Deployment
+
+Document Railway deployment.
+
+Document persistence.
+
+Document SQLite volume.
+
+Document backup strategy.
+
+⸻
+
+Future Roadmap
+
+Explain that Brain Ops remains stable.
+
+Future innovation happens in
+
+* Signal Bot
+* Reflex Engine
+* Engineering Database
+
+Brain Ops continues to provide runtime truth for all future development.
+
+⸻
+
+Changelog
+
+Create
+
+README v2.0
+
+W26 Runtime Truth Platform
+
+Include migration notes from Phase 1.
+
+Do not change production code.
+
+Update documentation only.
