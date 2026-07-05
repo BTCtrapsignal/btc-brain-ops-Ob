@@ -70,20 +70,50 @@ def generate_weekly_markdown(week: str, session: Session) -> str:
 
 def get_generation_metadata(week: str, session: Session) -> dict:
     """
-    Return counts used to populate WeeklyExport reliability fields.
-    Called by the weekly API after generate_weekly_markdown().
+    Return metadata about the generated export for storage in WeeklyExport.
+
+    Existing keys (unchanged — W22):
+      signal_count_at_generation
+      missed_count_at_generation
+      event_count_at_generation
+      is_complete
+
+    REQ-W27-002 additions:
+      package_version             — e.g. "W27.0"
+      schema_version              — e.g. "engineering-export-v1"
+      generator_version           — Brain Ops version
+      compatible_runtime          — minimum Signal Bot version
+      eo_count_at_generation      — EOs in database at generation time
+      er_count_at_generation      — ERs in database at generation time
+      evidence_count_at_generation — evidence records at generation time
     """
+    # ── Existing counts (unchanged) ───────────────────────────
     signal_count = len(session.exec(select(Signal).where(Signal.week == week)).all())
     missed_count = len(session.exec(select(MissedOpportunity).where(MissedOpportunity.week == week)).all())
     event_count  = len(session.exec(select(EventLog).where(EventLog.week == week)).all())
-    is_complete  = signal_count > 0 or missed_count > 0 or event_count > 0
+    is_complete  = signal_count > 0
+
+    # ── REQ-W27-002: Engineering counts ──────────────────────
+    eo_count       = len(session.exec(select(EngineeringObservation)).all())
+    er_count       = len(session.exec(select(EngineeringReview)).all())
+    evidence_count = len(session.exec(select(EngineeringEvidence)).all())
+
     return {
+        # Existing keys — preserved exactly
         "signal_count_at_generation": signal_count,
         "missed_count_at_generation":  missed_count,
         "event_count_at_generation":   event_count,
         "is_complete":                 is_complete,
+        # REQ-W27-002: versioning
+        "package_version":             f"{PACKAGE_VERSION_PREFIX}.0",
+        "schema_version":              SCHEMA_VERSION,
+        "generator_version":           f"Brain Ops {_BRAIN_OPS_VERSION}",
+        "compatible_runtime":          COMPATIBLE_RUNTIME,
+        # REQ-W27-002: engineering counts
+        "eo_count_at_generation":      eo_count,
+        "er_count_at_generation":      er_count,
+        "evidence_count_at_generation": evidence_count,
     }
-
 
 # ─────────────────────────────────────────────────────────────
 # Section builders
