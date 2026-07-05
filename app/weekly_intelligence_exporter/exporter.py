@@ -20,7 +20,7 @@ from datetime import datetime
 from typing import Optional
 from sqlmodel import Session, select
 
-from app.database.models import Signal, LifecycleEvent, MissedOpportunity, EventLog, WeeklyExport
+from app.database.models import Signal, LifecycleEvent, MissedOpportunity, EventLog, WeeklyExport, EngineeringObservation, EngineeringReview, EngineeringEvidence
 from app.signal_lifecycle_tracker.tracker import get_week_lifecycle_summaries
 from app.continuation_state_logger.classifier import state_description, survivability_score
 
