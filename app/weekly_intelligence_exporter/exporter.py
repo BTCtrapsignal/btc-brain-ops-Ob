@@ -26,6 +26,17 @@ from app.continuation_state_logger.classifier import state_description, survivab
 
 
 # ─────────────────────────────────────────────────────────────
+# REQ-W27-002 version metadata
+# Kept local to this exporter so weekly metadata generation does
+# not depend on importing the engineering exporter module.
+# ─────────────────────────────────────────────────────────────
+PACKAGE_VERSION_PREFIX = "W27"
+SCHEMA_VERSION = "engineering-export-v1"
+_BRAIN_OPS_VERSION = "1.2.0"
+COMPATIBLE_RUNTIME = "Signal Bot v7.9+"
+
+
+# ─────────────────────────────────────────────────────────────
 # Public entry point
 # ─────────────────────────────────────────────────────────────
 
