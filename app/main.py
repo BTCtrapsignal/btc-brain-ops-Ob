@@ -4,6 +4,13 @@ app/main.py — btc-brain-ops v1.1.0
 Phase 1: observe signals, track lifecycle, record PnL, export weekly intelligence.
 Phase 1.1: universal signal schema, structured event logging, Reflex read-only API.
 
+REQ-W27-002: Engineering Export Upgrade.
+  Brain Ops is now the authoritative Engineering Evidence Warehouse.
+  Adds EngineeringObservation, EngineeringReview, EngineeringEvidence tables.
+  Adds /engineering/* CRUD endpoints.
+  Extends /weekly/{week}/generate with engineering package generation.
+  Adds /weekly/{week}/engineering-package retrieval endpoint.
+
 ARCHITECTURE:
   btc-signal-alert-system → ingest → btc-brain-ops → lifecycle → weekly export
   Reflex Engine           → READ ONLY via /reflex/* endpoints
@@ -19,6 +26,7 @@ from app.api.events import router as events_router
 from app.api.reflex import router as reflex_router
 from app.api.monitor import router as monitor_router, VERSION
 from app.api.calibration import router as calibration_router
+from app.api.engineering import router as engineering_router  # REQ-W27-002
 
 
 @asynccontextmanager
@@ -32,7 +40,8 @@ app = FastAPI(
     description=(
         "Parallel survivability intelligence system for BTC-Brain. "
         "Universal signal schema. Structured event logging. "
-        "Read-only Reflex Engine interface. Monitor-compatible observability endpoints."
+        "Read-only Reflex Engine interface. Monitor-compatible observability endpoints. "
+        "Engineering Evidence Warehouse (REQ-W27-002)."
     ),
     version=VERSION,
     lifespan=lifespan,
@@ -44,13 +53,14 @@ app.include_router(events_router)
 app.include_router(reflex_router)
 app.include_router(monitor_router)
 app.include_router(calibration_router)
+app.include_router(engineering_router)   # REQ-W27-002
 
 
 @app.get("/", tags=["health"])
 def root():
     return {
         "system": "btc-brain-ops",
-        "version": "1.1.0",
+        "version": VERSION,
         "phase": "1.1",
         "mode": "OBSERVE ONLY — no signal blocking",
         "doctrine": [
@@ -59,17 +69,19 @@ def root():
             "Persistence gives survivability proof.",
         ],
         "endpoints": {
-            "signals":    "/signals",
-            "weekly":     "/weekly",
-            "events":     "/events",
+            "signals":     "/signals",
+            "weekly":      "/weekly",
+            "events":      "/events",
+            "engineering": "/engineering  ← REQ-W27-002",
             "calibration": "/calibration",
-            "reflex":     "/reflex  ← READ ONLY",
-            "docs":       "/docs",
+            "reflex":      "/reflex  ← READ ONLY",
+            "docs":        "/docs",
         },
         "architecture": {
-            "main_system":    "deterministic, fast, reliable",
-            "reflex_engine":  "adaptive, analytical, external only",
-            "reflex_access":  "read-only via /reflex/*",
+            "main_system":              "deterministic, fast, reliable",
+            "reflex_engine":            "adaptive, analytical, external only",
+            "reflex_access":            "read-only via /reflex/*",
+            "engineering_database":     "Brain Ops is authoritative EO/ER store",
         },
     }
 
