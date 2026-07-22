@@ -30,7 +30,10 @@ Governance:
 
 from datetime import datetime
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException
+import logging
+from fastapi import APIRouter, Depends, HTTPException, Response, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.exception_handlers import request_validation_exception_handler
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
@@ -39,9 +42,79 @@ from app.database.models import (
     EngineeringObservation,
     EngineeringReview,
     EngineeringEvidence,
+    MirroredObservation,
 )
 
 router = APIRouter(prefix="/engineering", tags=["engineering"])
+
+# EC-W28-005 (Brain Ops Logging Baseline, approved, normative):
+# module-level logger only. No basicConfig, handlers, formatters, or
+# custom logging classes in this router module — application-level
+# configuration (if any) belongs at the Brain Ops entry point.
+logger = logging.getLogger(__name__)
+
+# EC-W28-007 (Request Validation Failure Logging, approved, normative):
+# handles FastAPI/Pydantic-level request validation failures (e.g.
+# missing required fields, wrong types) that occur BEFORE the mirror
+# endpoint function body executes — these are not caught by the
+# schema_version check inside mirror_observation(), since Pydantic
+# rejects the request before that code ever runs.
+#
+# This handler is registered on the FastAPI `app` instance in
+# app/main.py (FastAPI does not support router-scoped exception
+# handlers — RequestValidationError handlers must be registered at
+# the app level). It is defined here, alongside the endpoint it
+# concerns, and imported into main.py for registration.
+#
+# Scope: only requests to POST /engineering/mirror are logged here.
+# EC-W28-007 refers to "the mirror endpoint" in the context of
+# observation ingestion (source_system/observation_id/schema_version
+# fields) — this scoping was chosen to match that context precisely,
+# rather than also capturing query-parameter validation errors on the
+# GET /engineering/mirror/... retrieval endpoints, which are a
+# different concern not described by EC-W28-007's required context
+# fields. Flagging this scoping choice for confirmation.
+async def mirror_validation_exception_handler(
+    request: Request, exc: RequestValidationError
+):
+    if request.url.path == "/engineering/mirror" and request.method == "POST":
+        # Best-effort extraction from the raw request body captured by
+        # FastAPI in exc.body. exc.body may be a dict (parsed JSON), a
+        # non-dict type, or None (e.g. malformed JSON) — use "unavailable"
+        # per EC-W28-007 when a field cannot be safely obtained.
+        raw_body = exc.body if isinstance(exc.body, dict) else {}
+        source_system = raw_body.get("source_system", "unavailable")
+        observation_id = raw_body.get("observation_id", "unavailable")
+        schema_version = raw_body.get("schema_version", "unavailable")
+
+        # Concise failure_reason built from Pydantic error locations and
+        # messages only — never the field values themselves, to avoid
+        # logging runtime_context/summary/payload content per
+        # EC-W28-005's Logging Restrictions.
+        failure_reason = "; ".join(
+            f"{'.'.join(str(p) for p in err.get('loc', []))}: {err.get('msg', '')}"
+            for err in exc.errors()
+        )
+
+        logger.warning(
+            "engineering_mirror.validation_failed "
+            "source_system=%s observation_id=%s schema_version=%s "
+            "failure_reason=%s",
+            source_system,
+            observation_id,
+            schema_version,
+            failure_reason,
+        )
+
+    # Preserve FastAPI's normal 422 response semantics exactly, by
+    # delegating to FastAPI's own default handler rather than
+    # constructing a response manually.
+    return await request_validation_exception_handler(request, exc)
+
+# REQ-W28-001 / EC-W28-002 (Supported Schema Version, approved, normative):
+# the mirror endpoint accepts only this exact schema_version value.
+# Future schema versions require a new Engineering Decision.
+SUPPORTED_SCHEMA_VERSION = "1.0"
 
 
 # ─────────────────────────────────────────────────────────────
@@ -124,6 +197,42 @@ class EvidenceCreateRequest(BaseModel):
     observation_window: Optional[str] = None
     runtime_log_ref: Optional[str] = None
     description: Optional[str] = None
+
+
+class MirrorObservationRequest(BaseModel):
+    """
+    Request model for POST /engineering/mirror (API-W28-001 Section 2).
+
+    Fields match ADR-W28-001 Section 4 Observation Payload exactly —
+    no fields added, renamed, or omitted.
+
+    All fields are required (no Optional / default values). This
+    reflects API-W28-001 Section 3: "Each request contains one
+    completed engineering observation. Partial observations are
+    prohibited." ADR-W28-001 Section 4 lists these as the "minimum
+    fields" every mirrored observation SHALL contain.
+
+    Note: the MirroredObservation storage model (Task 1) declares
+    runtime_context as an Optional/nullable column for storage-layer
+    flexibility. That nullability is a database-column concern, not a
+    relaxation of this request contract — a request missing
+    runtime_context is rejected here regardless of what the storage
+    column permits.
+
+    Field types (confidence: float, runtime_context: dict,
+    observation_id: str) follow ED-W28-001 Decisions 3-5.
+    """
+    source_system: str
+    observation_id: str
+    observed_at: datetime
+    market: str
+    timeframe: str
+    structural_state: str
+    behavioural_state: str
+    confidence: float
+    summary: str
+    runtime_context: dict
+    schema_version: str
 
 
 # ─────────────────────────────────────────────────────────────
@@ -331,6 +440,227 @@ def list_evidence(
             EngineeringEvidence.er_id == ref_id
         ).order_by(EngineeringEvidence.recorded_at.desc())
     return session.exec(query.limit(limit)).all()
+
+
+# ─────────────────────────────────────────────────────────────
+# Mirrored Observation endpoint (REQ-W28-001 / ADR-W28-001 / API-W28-001)
+#
+# Sprint B-1 status — implements:
+#   Task 2  — request model + payload validation (MirrorObservationRequest)
+#   Task 3  — schema_version verification (EC-W28-002)
+#   Task 4  — idempotency lookup (source_system + observation_id)
+#   Task 5  — duplicate-request behaviour: return existing, 200 OK
+#             (EC-W28-003)
+#   Task 6  — new-record persistence
+#   Task 8  — success response (repository acknowledgement, 201 Created
+#             for new records; existing-record return is 200 per Task 5)
+#   Task 9/10 — structured logging via Python's standard logging module
+#             (EC-W28-005), module-level logger declared above.
+#
+# Explicitly NOT implemented in this task (deferred to later WBS tasks):
+#   - retrieval endpoint(s) (Task 11 — see separate GET route below)
+#   - tests (Brain Ops-side tests to follow)
+#   - Reflex-side integration (blocked — no Reflex source evidence)
+# ─────────────────────────────────────────────────────────────
+
+@router.post("/mirror", status_code=201)
+def mirror_observation(
+    payload: MirrorObservationRequest,
+    response: Response,
+    session: Session = Depends(get_session),
+):
+    """
+    Receive one completed Reflex engineering observation for repository
+    persistence (API-W28-001 Section 2: POST /engineering/mirror).
+
+    Implements Tasks 2, 3, 4, 5, 6, 8, 9/10 per the approved WBS and
+    EC-W28-002 (schema version), EC-W28-003 (duplicate behaviour), and
+    EC-W28-005 (logging baseline).
+    """
+
+    # ── Task 3: schema_version verification (EC-W28-002) ───────
+    if payload.schema_version != SUPPORTED_SCHEMA_VERSION:
+        # engineering_mirror.validation_failed — WARNING
+        # EC-W28-005 Logging Restrictions: do not log full payload,
+        # runtime_context content, or complete summaries.
+        logger.warning(
+            "engineering_mirror.validation_failed "
+            "source_system=%s observation_id=%s schema_version=%s "
+            "failure_reason=%s",
+            payload.source_system,
+            payload.observation_id,
+            payload.schema_version,
+            "unsupported_schema_version",
+        )
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Unsupported schema_version '{payload.schema_version}'. "
+                f"Only '{SUPPORTED_SCHEMA_VERSION}' is currently supported "
+                f"(EC-W28-002)."
+            ),
+        )
+
+    # engineering_mirror.request_received — INFO
+    logger.info(
+        "engineering_mirror.request_received "
+        "source_system=%s observation_id=%s schema_version=%s",
+        payload.source_system,
+        payload.observation_id,
+        payload.schema_version,
+    )
+
+    # ── Task 4: idempotency lookup (source_system + observation_id) ──
+    # ADR-W28-001 Section 4 Idempotency Rule / API-W28-001 Section 10:
+    # this pair uniquely identifies one engineering observation.
+    existing = session.exec(
+        select(MirroredObservation).where(
+            MirroredObservation.source_system == payload.source_system,
+            MirroredObservation.observation_id == payload.observation_id,
+        )
+    ).first()
+
+    # ── Task 5: duplicate branch (EC-W28-003) ───────────────────
+    # Duplicate requests are NOT errors. Return the existing
+    # observation. No additional record is created.
+    if existing:
+        # engineering_mirror.duplicate_returned — INFO
+        logger.info(
+            "engineering_mirror.duplicate_returned "
+            "source_system=%s observation_id=%s stored_record_id=%s",
+            payload.source_system,
+            payload.observation_id,
+            existing.id,
+        )
+        # EC-W28-003 specifies HTTP 200 for the duplicate branch, while
+        # the route decorator's status_code=201 governs the default
+        # (new-record) case. FastAPI's documented mechanism for a
+        # per-branch override is to accept a `response: Response`
+        # parameter and set response.status_code directly — no other
+        # approved document specifies an alternative mechanism, and
+        # this is the minimal standard FastAPI pattern for the case.
+        response.status_code = 200
+        return existing
+
+    # ── Task 6: new-record persistence ──────────────────────────
+    try:
+        record = MirroredObservation(
+            source_system=payload.source_system,
+            observation_id=payload.observation_id,
+            observed_at=payload.observed_at,
+            market=payload.market,
+            timeframe=payload.timeframe,
+            structural_state=payload.structural_state,
+            behavioural_state=payload.behavioural_state,
+            confidence=payload.confidence,
+            summary=payload.summary,
+            runtime_context=payload.runtime_context,
+            schema_version=payload.schema_version,
+        )
+        session.add(record)
+        session.commit()
+        session.refresh(record)
+    except Exception as exc:
+        session.rollback()
+        # engineering_mirror.persistence_failed — ERROR, with traceback
+        # EC-W28-005: "Logging failures must not cause observation
+        # persistence to fail" — this is the inverse case (persistence
+        # failure being logged), traceback preserved via exc_info.
+        logger.error(
+            "engineering_mirror.persistence_failed "
+            "source_system=%s observation_id=%s exception_type=%s",
+            payload.source_system,
+            payload.observation_id,
+            type(exc).__name__,
+            exc_info=True,
+        )
+        # ADR-W28-001 Section 5, FM-5 (Repository Failure): errors must
+        # be observable and never silently discard evidence. Re-raising
+        # as a 500 surfaces the failure to the caller (Reflex), which
+        # per FM-5 must treat delivery as unsuccessful and is not
+        # interrupted by this failure (Reflex-side isolation is a
+        # Reflex-side concern, out of scope here).
+        raise HTTPException(
+            status_code=500,
+            detail="Repository failure during observation persistence.",
+        )
+
+    # engineering_mirror.persisted — INFO
+    logger.info(
+        "engineering_mirror.persisted "
+        "source_system=%s observation_id=%s stored_record_id=%s",
+        payload.source_system,
+        payload.observation_id,
+        record.id,
+    )
+
+    # ── Task 8: success response ─────────────────────────────────
+    # API-W28-001 Section 4: 201 Created (set via route decorator
+    # status_code=201, applies to this — the default — branch).
+    # Response body is repository acknowledgement only; the original
+    # observation payload is not modified (returned as persisted).
+    return record
+
+
+# ─────────────────────────────────────────────────────────────
+# Task 11: Retrieval endpoint(s) for mirrored observations
+# REQ-W28-001 FR-10: retrieval available for Engineering Review,
+# Evidence, Weekly Engineering Packages, and future Engineering
+# Intelligence. Retrieval does not authorize modification.
+# Follows the existing list/detail pattern used by /eo/, /eo/{eo_id},
+# /er/, /er/{er_id} above, and the filter/limit pattern from
+# app/api/reflex.py (conditional `where` reassignment, capped limit).
+# ─────────────────────────────────────────────────────────────
+
+@router.get("/mirror/")
+def list_mirrored_observations(
+    source_system: Optional[str] = None,
+    market: Optional[str] = None,
+    limit: int = 100,
+    session: Session = Depends(get_session),
+):
+    """List mirrored observations with optional filters (FR-10)."""
+    query = select(MirroredObservation).order_by(
+        MirroredObservation.mirrored_at.desc()
+    )
+    if source_system:
+        query = query.where(MirroredObservation.source_system == source_system)
+    if market:
+        query = query.where(MirroredObservation.market == market)
+    return session.exec(query.limit(min(limit, 200))).all()
+
+
+@router.get("/mirror/{source_system}/{observation_id}")
+def get_mirrored_observation(
+    source_system: str,
+    observation_id: str,
+    session: Session = Depends(get_session),
+):
+    """
+    Retrieve a single mirrored observation by its composite identity
+    (source_system, observation_id) — EC-W28-006 (Mirror Retrieval
+    Identity, approved, normative).
+
+    Both path values are mandatory. No default or inferred
+    source_system is applied (EC-W28-006 explicitly disallows this;
+    a previously implemented default of "reflex" was rejected and has
+    been removed).
+    """
+    record = session.exec(
+        select(MirroredObservation).where(
+            MirroredObservation.source_system == source_system,
+            MirroredObservation.observation_id == observation_id,
+        )
+    ).first()
+    if not record:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"No mirrored observation found for "
+                f"source_system={source_system}, observation_id={observation_id}."
+            ),
+        )
+    return record
 
 
 # ─────────────────────────────────────────────────────────────
