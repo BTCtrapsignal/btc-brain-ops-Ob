@@ -1,26 +1,12 @@
-# Place this file at: .github/workflows/sprint-b1-tests.yml
-#
-# Runs the Sprint B-1 (REQ-W28-001) test suite on push and pull request.
-#
-# This workflow assumes a repository layout where:
-#   - the FastAPI app is importable as `app.*` from the repo root
-#     (matches existing imports throughout the supplied source, e.g.
-#     `from app.database import get_session`)
-#   - tests live under `tests/`
-#   - requirements-sprint-b1.txt (or the repo's own dependency file,
-#     if one already exists) is present at the repo root
-#
-# No existing CI configuration was found anywhere in the supplied
-# source package, so this workflow is provided as a new file, not a
-# modification of one that already exists.
-
 name: Sprint B-1 Tests
 
 on:
   push:
-    branches: ["**"]
+    branches:
+      - sprint-b1
   pull_request:
-    branches: ["**"]
+    branches:
+      - main
 
 jobs:
   test:
@@ -38,7 +24,14 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements-sprint-b1.txt
+
+          # Base project dependencies
+          pip install -r requirements.txt
+
+          # Sprint B-1 additional dependencies
+          if [ -f requirements-sprint-b1.txt ]; then
+            pip install -r requirements-sprint-b1.txt
+          fi
 
       - name: Run Sprint B-1 test suite
         run: |
