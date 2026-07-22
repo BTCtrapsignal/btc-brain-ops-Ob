@@ -13,11 +13,21 @@ REQ-W27-002 additions:
   EngineeringReview      — ER register (Brain Ops as authoritative ER store)
   EngineeringEvidence    — evidence increment log per EO/ER
   WeeklyExport extended  — 11 new optional columns for engineering package
+
+REQ-W28-001 additions:
+  MirroredObservation — repository record for Reflex observations mirrored
+                        into Brain Ops (ADR-W28-001: Reflex Observation
+                        Mirroring to Brain Ops). Brain Ops is the
+                        authoritative repository for mirrored observations;
+                        Reflex remains the authoritative producer of the
+                        original observation (ADR-W28-001 Section 3,
+                        Ownership Model).
 """
 
 from datetime import datetime
 from typing import Optional
 from sqlmodel import Field, SQLModel
+from sqlalchemy import UniqueConstraint, Column, JSON
 
 
 class Signal(SQLModel, table=True):
@@ -359,3 +369,76 @@ class EngineeringEvidence(SQLModel, table=True):
 
     # ── Audit ─────────────────────────────────────────────────
     recorded_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+# ─────────────────────────────────────────────────────────────
+# REQ-W28-001: Reflex Observation Mirroring Repository Table
+# Brain Ops is the authoritative repository for mirrored observations.
+# Reflex remains the authoritative producer of the original observation
+# (ADR-W28-001 Section 3, Ownership Model).
+# This table is created automatically by create_all() on startup.
+# No manual migration required — new table only.
+# ─────────────────────────────────────────────────────────────
+
+class MirroredObservation(SQLModel, table=True):
+    """
+    Repository record for one Reflex engineering observation mirrored
+    into Brain Ops.
+
+    ADR-W28-001 Section 3 (Ownership Model): Reflex owns observation
+    generation, structural/behavioural interpretation, confidence
+    assessment, timestamp, and runtime context. Brain Ops owns
+    persistent storage, repository indexing, retrieval, lineage,
+    audit history, and knowledge relationships. Ownership never overlaps.
+
+    ADR-W28-001 Section 4 (Immutable Fields): source_system,
+    observation_id, observed_at, structural_state, behavioural_state,
+    and confidence originate from Reflex and shall never be modified by
+    Brain Ops after ingestion. Repository metadata fields below are
+    appended separately and never replace original Reflex data.
+
+    API-W28-001 Section 10 (Idempotency): the combination of
+    source_system + observation_id uniquely identifies one engineering
+    observation. Enforced here via a unique constraint on that pair;
+    duplicate-response behaviour at the API layer is a separate,
+    not-yet-resolved decision (ED pending — out of scope for this table).
+
+    Field types for confidence (float), runtime_context (JSON, via
+    SQLAlchemy JSON column per EC-W28-001 Clarification 2), and
+    observation_id (str) follow ED-W28-001 Decisions 3-5.
+    """
+    __tablename__ = "mirrored_observations"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+
+    # ── Original observation fields (Reflex-owned, immutable after
+    #    ingestion — ADR-W28-001 Section 4) ─────────────────────────
+    source_system: str                          # originating subsystem (Reflex)
+    observation_id: str                          # immutable observation identifier (ED-W28-001 Decision 3)
+    observed_at: datetime                        # UTC timestamp — observation generated
+    market: str
+    timeframe: str
+    structural_state: str                        # structural assessment produced by Reflex
+    behavioural_state: str                       # behavioural assessment produced by Reflex
+    confidence: float                            # Reflex confidence score (ED-W28-001 Decision 4)
+    summary: str                                  # human-readable observation summary
+    runtime_context: Optional[dict] = Field(default=None, sa_column=Column(JSON))  # supporting runtime context, JSON semantics (ED-W28-001 Decision 5, EC-W28-001 Clarification 2)
+    schema_version: str                           # observation schema version
+
+    # ── Repository metadata (Brain Ops-owned — ADR-W28-001 Section 4;
+    #    never replaces original Reflex data) ───────────────────────
+    mirrored_at: datetime = Field(default_factory=datetime.utcnow)   # UTC timestamp — Brain Ops received it
+    ingestion_status: Optional[str] = None        # e.g. "received" | "duplicate" | "rejected"
+    ingestion_attempts: int = Field(default=1)
+    repository_version: Optional[str] = None
+    engineering_links: Optional[str] = None       # links to EO/ER/Evidence records, if any
+
+    # ── Audit ─────────────────────────────────────────────────
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    __table_args__ = (
+        # API-W28-001 Section 10 / ADR-W28-001 Section 4 Idempotency Rule:
+        # source_system + observation_id uniquely identifies one observation.
+        UniqueConstraint("source_system", "observation_id", name="uq_mirrored_observation_idempotency_key"),
+    )
