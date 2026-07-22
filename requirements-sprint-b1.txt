@@ -1,0 +1,14 @@
+# Minimum dependencies to execute: pytest tests/test_mirror.py -v
+#
+# No requirements.txt, pyproject.toml, or lockfile was supplied anywhere
+# in the Sprint B-1 source package (confirmed absent in the Implementation
+# Bootstrap Report and again during Sprint B-1 executable-verification
+# attempts). These are therefore unpinned minimums inferred from what the
+# code actually imports, not a reproduction of an existing project file.
+# If the real repository already has a requirements/dependency file,
+# merge these into it rather than replacing it.
+
+fastapi
+sqlmodel
+pytest
+httpx
