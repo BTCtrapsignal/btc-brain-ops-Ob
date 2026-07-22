@@ -11,6 +11,12 @@ REQ-W27-002: Engineering Export Upgrade.
   Extends /weekly/{week}/generate with engineering package generation.
   Adds /weekly/{week}/engineering-package retrieval endpoint.
 
+REQ-W28-001: Reflex Observation Mirroring Implementation.
+  Adds POST /engineering/mirror (ADR-W28-001 / API-W28-001).
+  Registers a RequestValidationError handler (EC-W28-007) scoped to
+  the mirror endpoint, since FastAPI does not support router-scoped
+  exception handlers — this must be registered on the app instance.
+
 ARCHITECTURE:
   btc-signal-alert-system → ingest → btc-brain-ops → lifecycle → weekly export
   Reflex Engine           → READ ONLY via /reflex/* endpoints
@@ -19,6 +25,7 @@ ARCHITECTURE:
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
 from app.database.engine import create_db_and_tables
 from app.api.signals import router as signals_router
 from app.api.weekly import router as weekly_router
@@ -26,7 +33,10 @@ from app.api.events import router as events_router
 from app.api.reflex import router as reflex_router
 from app.api.monitor import router as monitor_router, VERSION
 from app.api.calibration import router as calibration_router
-from app.api.engineering import router as engineering_router  # REQ-W27-002
+from app.api.engineering import (
+    router as engineering_router,
+    mirror_validation_exception_handler,  # EC-W28-007
+)  # REQ-W27-002 / REQ-W28-001
 
 
 @asynccontextmanager
@@ -54,6 +64,14 @@ app.include_router(reflex_router)
 app.include_router(monitor_router)
 app.include_router(calibration_router)
 app.include_router(engineering_router)   # REQ-W27-002
+
+# EC-W28-007 (Request Validation Failure Logging, approved, normative):
+# FastAPI only supports exception handlers registered on the app
+# instance, not on individual APIRouter objects — this is why
+# registration happens here rather than in app/api/engineering.py,
+# even though the handler function itself is defined there alongside
+# the endpoint it concerns.
+app.add_exception_handler(RequestValidationError, mirror_validation_exception_handler)
 
 
 @app.get("/", tags=["health"])
