@@ -44,6 +44,7 @@ from app.database.models import (
     EngineeringEvidence,
     MirroredObservation,
 )
+from app.services import evidence_lifecycle  # REQ-B2-001 / EA-009
 
 router = APIRouter(prefix="/engineering", tags=["engineering"])
 
@@ -593,6 +594,25 @@ def mirror_observation(
         payload.observation_id,
         record.id,
     )
+
+    # REQ-B2-001 / EA-007 / EA-009: Evidence Lifecycle.
+    # Additive to Sprint B-1's established behavior — invoked only on
+    # this new-record path (never on the duplicate-return path above,
+    # since a duplicate is not a new accepted Observation per REQ-B2-001
+    # AC-001). Failures here are logged (inside the adapter) but do NOT
+    # alter this endpoint's Sprint B-1 response contract: no Sprint B-2
+    # document authorizes changing Sprint B-1's established status
+    # codes or response shape, and the Sprint B-2 handoff explicitly
+    # states its objective is NOT to modify Sprint B-1. This
+    # interpretation is noted in the accompanying Implementation Report
+    # for Engineering Authority's awareness.
+    try:
+        evidence_lifecycle.create_evidence_for_mirrored_observation(record, session)
+    except evidence_lifecycle.EvidenceCreationError:
+        # Already logged inside the adapter
+        # (evidence_lifecycle.creation_or_validation_failed).
+        # Intentionally not re-raised — see note above.
+        pass
 
     # ── Task 8: success response ─────────────────────────────────
     # API-W28-001 Section 4: 201 Created (set via route decorator
