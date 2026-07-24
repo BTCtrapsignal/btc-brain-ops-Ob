@@ -44,6 +44,7 @@ from app.database.models import (
     EngineeringEvidence,
     MirroredObservation,
 )
+from app.services import evidence_lifecycle  # REQ-B2-001 / EA-009
 
 router = APIRouter(prefix="/engineering", tags=["engineering"])
 
@@ -593,6 +594,44 @@ def mirror_observation(
         payload.observation_id,
         record.id,
     )
+
+    # REQ-B2-001 / EA-007 / EA-009: Evidence Lifecycle.
+    # Additive to Sprint B-1's established behavior — invoked only on
+    # this new-record path (never on the duplicate-return path above,
+    # since a duplicate is not a new accepted Observation per REQ-B2-001
+    # AC-001). Failures here are logged (inside the adapter) but do NOT
+    # alter this endpoint's Sprint B-1 response contract: no Sprint B-2
+    # document authorizes changing Sprint B-1's established status
+    # codes or response shape, and the Sprint B-2 handoff explicitly
+    # states its objective is NOT to modify Sprint B-1. This
+    # interpretation is noted in the accompanying Implementation Report
+    # for Engineering Authority's awareness.
+    try:
+        evidence_lifecycle.create_evidence_for_mirrored_observation(record, session)
+    except evidence_lifecycle.EvidenceCreationError:
+        # Already logged inside the adapter
+        # (evidence_lifecycle.creation_or_validation_failed).
+        # Intentionally not re-raised — see note above.
+        pass
+
+    # Root cause fix: the Evidence Lifecycle adapter performs its own
+    # session.commit() (success path) or session.rollback() (failure
+    # path) on this SAME shared session, to satisfy EA-007's atomicity
+    # requirement for Evidence + its initial validation record. Both
+    # operations expire EVERY object tracked by the session by default
+    # (SQLAlchemy's expire_on_commit=True applies session-wide, not
+    # just to objects touched in that transaction) — including
+    # `record`, even though the Evidence-lifecycle transaction never
+    # modifies it. Without this refresh, FastAPI's response
+    # serialization reads `record`'s expired (cleared) __dict__ and
+    # produces a JSON body missing fields such as source_system and
+    # id, even though the correct status code is still returned. This
+    # refresh restores record's attributes from the database
+    # (unaffected by the commit/rollback above, since record's own row
+    # was already durably committed by Task 6) before the response is
+    # built, unconditionally covering both the success and failure
+    # branches of the Evidence Lifecycle call above.
+    session.refresh(record)
 
     # ── Task 8: success response ─────────────────────────────────
     # API-W28-001 Section 4: 201 Created (set via route decorator
