@@ -22,6 +22,17 @@ REQ-W28-001 additions:
                         Reflex remains the authoritative producer of the
                         original observation (ADR-W28-001 Section 3,
                         Ownership Model).
+
+REQ-B2-001 / REQ-B2-001A / EA-001 through EA-009 additions:
+  Evidence                  — immutable Evidence record (ADR-0002, Stage 2)
+  EvidenceValidationRecord  — append-only validation decision log (EA-006)
+  EvidenceArchivalRecord    — append-only archival marker (Stage 6; modeled
+                              by analogy to EA-006's append-only pattern —
+                              see class docstring)
+  Both new tables are producer-independent (ADR-0002 P-06, EA-009): they
+  reference the originating Observation only via producer_id +
+  observation_reference (plain values), never via a foreign key to any
+  producer-specific table such as MirroredObservation.
 """
 
 from datetime import datetime
@@ -442,3 +453,99 @@ class MirroredObservation(SQLModel, table=True):
         # source_system + observation_id uniquely identifies one observation.
         UniqueConstraint("source_system", "observation_id", name="uq_mirrored_observation_idempotency_key"),
     )
+
+
+# ─────────────────────────────────────────────────────────────
+# REQ-B2-001 / REQ-B2-001A / EA-001 through EA-009:
+# Evidence Lifecycle — Brain Ops as Engineering Learning System
+# (ADR-0001, ADR-0002).
+#
+# Evidence is immutable after creation (ADR-0002 P-02, EA-008): no
+# mutable validation_status field exists on this table. Validation
+# outcomes are recorded exclusively in the separate, append-only
+# EvidenceValidationRecord table (EA-006). Effective validation status
+# is a derived read projection (see app/services/evidence_lifecycle.py),
+# never stored here.
+#
+# Producer-independent by design (ADR-0002 P-06, EA-009): this table
+# does not reference MirroredObservation or any other producer-specific
+# table by foreign key. producer_id + observation_reference together
+# identify the originating Observation within its producer's own
+# namespace; resolving that reference back to a producer-specific
+# record is the responsibility of a producer-specific adapter, not of
+# this schema.
+# ─────────────────────────────────────────────────────────────
+
+class Evidence(SQLModel, table=True):
+    """
+    Immutable Evidence record (REQ-B2-001 Stage 2, ADR-0002).
+
+    No PATCH/PUT endpoint or update path shall ever be added for this
+    table (ADR-0002 P-02, REQ-B2-001 FR-003, EA-008). Corrections are
+    represented as new Evidence records, never as modifications to an
+    existing one.
+    """
+    __tablename__ = "evidence"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    evidence_id: str                              # immutable, unique identifier
+    producer_id: str                              # producer identity (e.g. "reflex")
+    observation_reference: str                    # reference within the producer's own namespace
+    evidence_timestamp: datetime                  # originating observation's runtime timestamp
+    runtime_context: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("evidence_id", name="uq_evidence_evidence_id"),
+    )
+
+
+class EvidenceValidationRecord(SQLModel, table=True):
+    """
+    Append-only validation decision record (REQ-B2-001A, EA-006).
+
+    Never updated or deleted after creation. A later re-validation of
+    the same Evidence (e.g. resolving an Incomplete outcome) is
+    represented by inserting an additional record, never by modifying
+    this one. The effective validation status of an Evidence is a
+    derived projection (the latest record by evaluated_at — see
+    get_effective_validation_status in app/services/evidence_lifecycle.py)
+    and is not stored anywhere on Evidence itself.
+    """
+    __tablename__ = "evidence_validation_records"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    validation_record_id: str
+    evidence_id: str                              # references Evidence.evidence_id — no DB-level FK
+                                                   # constraint, kept producer/schema-independent;
+                                                   # enforced at the application-service layer.
+    outcome: str                                  # "accepted" | "rejected" | "incomplete"
+    evaluated_at: datetime = Field(default_factory=datetime.utcnow)
+    checks_performed: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    decision_reasons: Optional[str] = None
+    validator_identity: str
+
+
+class EvidenceArchivalRecord(SQLModel, table=True):
+    """
+    Append-only archival marker (REQ-B2-001 Stage 6).
+
+    Implemented as a separate append-only record — by direct analogy
+    to EA-006's validation-record pattern — rather than a mutable
+    'archived' flag on Evidence, to keep Evidence itself free of any
+    field that changes after creation. This analogy is an
+    implementation inference, not an explicit instruction from any
+    supplied document; flagged in the accompanying Implementation
+    Report for Engineering Authority's awareness.
+
+    The existence of any record for a given evidence_id means that
+    Evidence is considered archived. Archived Evidence remains fully
+    queryable via the normal Evidence/EvidenceValidationRecord tables —
+    archiving never removes or hides rows.
+    """
+    __tablename__ = "evidence_archival_records"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    evidence_id: str
+    archived_at: datetime = Field(default_factory=datetime.utcnow)
+    reason: Optional[str] = None
