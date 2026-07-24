@@ -614,6 +614,25 @@ def mirror_observation(
         # Intentionally not re-raised — see note above.
         pass
 
+    # Root cause fix: the Evidence Lifecycle adapter performs its own
+    # session.commit() (success path) or session.rollback() (failure
+    # path) on this SAME shared session, to satisfy EA-007's atomicity
+    # requirement for Evidence + its initial validation record. Both
+    # operations expire EVERY object tracked by the session by default
+    # (SQLAlchemy's expire_on_commit=True applies session-wide, not
+    # just to objects touched in that transaction) — including
+    # `record`, even though the Evidence-lifecycle transaction never
+    # modifies it. Without this refresh, FastAPI's response
+    # serialization reads `record`'s expired (cleared) __dict__ and
+    # produces a JSON body missing fields such as source_system and
+    # id, even though the correct status code is still returned. This
+    # refresh restores record's attributes from the database
+    # (unaffected by the commit/rollback above, since record's own row
+    # was already durably committed by Task 6) before the response is
+    # built, unconditionally covering both the success and failure
+    # branches of the Evidence Lifecycle call above.
+    session.refresh(record)
+
     # ── Task 8: success response ─────────────────────────────────
     # API-W28-001 Section 4: 201 Created (set via route decorator
     # status_code=201, applies to this — the default — branch).
