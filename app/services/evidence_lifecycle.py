@@ -233,11 +233,22 @@ def archive_evidence(evidence_id: str, reason: Optional[str], session: Session) 
     return record
 
 
-def is_archived(evidence_id: str, session: Session) -> bool:
-    existing = session.exec(
+def get_archival_record(evidence_id: str, session: Session) -> Optional[EvidenceArchivalRecord]:
+    """
+    REQ-B2-002: return the full EvidenceArchivalRecord when present, or
+    None when no archival record exists. Does not modify archive
+    behavior — read-only.
+    """
+    return session.exec(
         select(EvidenceArchivalRecord).where(EvidenceArchivalRecord.evidence_id == evidence_id)
     ).first()
-    return existing is not None
+
+
+def is_archived(evidence_id: str, session: Session) -> bool:
+    # Reimplemented in terms of get_archival_record() per REQ-B2-002 —
+    # observable contract (bool, True iff any archival record exists)
+    # is unchanged.
+    return get_archival_record(evidence_id, session) is not None
 
 
 # ─────────────────────────────────────────────────────────────
