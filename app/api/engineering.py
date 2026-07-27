@@ -43,6 +43,7 @@ from app.database.models import (
     EngineeringReview,
     EngineeringEvidence,
     MirroredObservation,
+    Evidence,
 )
 from app.services import evidence_lifecycle  # REQ-B2-001 / EA-009
 
@@ -700,6 +701,137 @@ def get_mirrored_observation(
             ),
         )
     return record
+
+
+# ─────────────────────────────────────────────────────────────
+# REQ-B2-002: Evidence Lifecycle Read-Only Runtime Verification API
+#
+# Observability only — does not modify Evidence creation, validation,
+# archival, Mirror ingestion, or legacy Sprint B-1 behavior. GET-only,
+# under a distinct "evidence-lifecycle" prefix so there is no path
+# overlap with the legacy GET /engineering/evidence/{ref_id} endpoint
+# (Sprint B-1 / REQ-W27-002, EngineeringEvidence — untouched here).
+#
+# Response bodies use explicit Pydantic schemas below rather than
+# returning ORM objects directly, per REQ-B2-002's constraint.
+# ─────────────────────────────────────────────────────────────
+
+class EvidenceLifecycleResponse(BaseModel):
+    evidence_id: str
+    producer_id: str
+    observation_reference: str
+    evidence_timestamp: datetime
+    runtime_context: Optional[dict] = None
+    created_at: datetime
+    effective_validation_status: Optional[str] = None
+    is_archived: bool
+
+
+class ValidationRecordResponse(BaseModel):
+    validation_record_id: str
+    outcome: str
+    evaluated_at: datetime
+    checks_performed: Optional[dict] = None
+    decision_reasons: Optional[str] = None
+    validator_identity: str
+
+
+class ArchivalStateResponse(BaseModel):
+    archived: bool
+    archived_at: Optional[datetime] = None
+    reason: Optional[str] = None
+
+
+def _build_evidence_lifecycle_response(
+    evidence: Evidence, session: Session
+) -> EvidenceLifecycleResponse:
+    """Shared assembly for routes A and B — keeps response-field
+    construction in one place rather than duplicated per route."""
+    return EvidenceLifecycleResponse(
+        evidence_id=evidence.evidence_id,
+        producer_id=evidence.producer_id,
+        observation_reference=evidence.observation_reference,
+        evidence_timestamp=evidence.evidence_timestamp,
+        runtime_context=evidence.runtime_context,
+        created_at=evidence.created_at,
+        effective_validation_status=evidence_lifecycle.get_effective_validation_status(
+            evidence.evidence_id, session
+        ),
+        is_archived=evidence_lifecycle.is_archived(evidence.evidence_id, session),
+    )
+
+
+@router.get(
+    "/evidence-lifecycle/by-observation/{producer_id}/{observation_reference}",
+    response_model=EvidenceLifecycleResponse,
+)
+def get_evidence_lifecycle_by_observation(
+    producer_id: str, observation_reference: str, session: Session = Depends(get_session)
+):
+    """REQ-B2-002 Route B: retrieve one Evidence record by producer + observation identity."""
+    evidence = evidence_lifecycle.get_evidence_by_producer_observation(
+        producer_id, observation_reference, session
+    )
+    if not evidence:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"No Evidence found for producer_id={producer_id}, "
+                f"observation_reference={observation_reference}."
+            ),
+        )
+    return _build_evidence_lifecycle_response(evidence, session)
+
+
+@router.get("/evidence-lifecycle/{evidence_id}", response_model=EvidenceLifecycleResponse)
+def get_evidence_lifecycle_record(evidence_id: str, session: Session = Depends(get_session)):
+    """REQ-B2-002 Route A: retrieve one Evidence record by evidence_id."""
+    evidence = evidence_lifecycle.get_evidence_by_id(evidence_id, session)
+    if not evidence:
+        raise HTTPException(status_code=404, detail=f"Evidence {evidence_id} not found.")
+    return _build_evidence_lifecycle_response(evidence, session)
+
+
+@router.get(
+    "/evidence-lifecycle/{evidence_id}/validations",
+    response_model=list[ValidationRecordResponse],
+)
+def get_evidence_lifecycle_validations(evidence_id: str, session: Session = Depends(get_session)):
+    """REQ-B2-002 Route C: full validation history, oldest first."""
+    evidence = evidence_lifecycle.get_evidence_by_id(evidence_id, session)
+    if not evidence:
+        raise HTTPException(status_code=404, detail=f"Evidence {evidence_id} not found.")
+    history = evidence_lifecycle.get_validation_history(evidence_id, session)
+    return [
+        ValidationRecordResponse(
+            validation_record_id=r.validation_record_id,
+            outcome=r.outcome,
+            evaluated_at=r.evaluated_at,
+            checks_performed=r.checks_performed,
+            decision_reasons=r.decision_reasons,
+            validator_identity=r.validator_identity,
+        )
+        for r in history
+    ]
+
+
+@router.get(
+    "/evidence-lifecycle/{evidence_id}/archival",
+    response_model=ArchivalStateResponse,
+)
+def get_evidence_lifecycle_archival(evidence_id: str, session: Session = Depends(get_session)):
+    """REQ-B2-002 Route D: archival state for the Evidence record."""
+    evidence = evidence_lifecycle.get_evidence_by_id(evidence_id, session)
+    if not evidence:
+        raise HTTPException(status_code=404, detail=f"Evidence {evidence_id} not found.")
+    archival = evidence_lifecycle.get_archival_record(evidence_id, session)
+    if archival is None:
+        return ArchivalStateResponse(archived=False)
+    return ArchivalStateResponse(
+        archived=True,
+        archived_at=archival.archived_at,
+        reason=archival.reason,
+    )
 
 
 # ─────────────────────────────────────────────────────────────
